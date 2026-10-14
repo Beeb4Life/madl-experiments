@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   runApp(const MyApp());
@@ -7,119 +9,253 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      debugShowCheckedModeBanner: false,
+      title: 'Experiment 9',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+        ),
         useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const HomePage(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<HomePage> createState() => _HomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _HomePageState extends State<HomePage> {
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  final String databaseUrl = 'https://YOUR-DATABASE-URL';
+
+  Map<String, dynamic> records = {};
+  bool loading = false;
+  bool saving = false;
+
+  Future<void> readData() async {
+    if (mounted) {
+      setState(() => loading = true);
+    }
+
+    try {
+      final url = Uri.parse('$databaseUrl/students.json');
+      final response = await http.get(url);
+
+      debugPrint('READ URL: $url');
+      debugPrint('READ STATUS: ${response.statusCode}');
+      debugPrint('READ RESPONSE: ${response.body}');
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          'HTTP ${response.statusCode}: ${response.body}',
+        );
+      }
+
+      final decoded = jsonDecode(response.body);
+
+      final Map<String, dynamic> fetchedRecords =
+          decoded == null
+              ? {}
+              : Map<String, dynamic>.from(decoded as Map);
+
+      if (mounted) {
+        setState(() => records = fetchedRecords);
+      }
+    } catch (e) {
+      debugPrint('READ ERROR: $e');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Read failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => loading = false);
+      }
+    }
+  }
+
+  Future<void> saveData() async {
+    final name = nameController.text.trim();
+    final email = emailController.text.trim();
+
+    if (name.isEmpty || email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter name and email'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => saving = true);
+
+    try {
+      final url = Uri.parse('$databaseUrl/students.json');
+
+      debugPrint('SAVE URL: $url');
+
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'name': name,
+          'email': email,
+        }),
+      );
+
+      debugPrint('SAVE STATUS: ${response.statusCode}');
+      debugPrint('SAVE RESPONSE: ${response.body}');
+
+      if (response.statusCode == 200) {
+        nameController.clear();
+        emailController.clear();
+
+        await readData();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Data saved successfully!'),
+            ),
+          );
+        }
+      } else {
+        throw Exception(
+          'HTTP ${response.statusCode}: ${response.body}',
+        );
+      }
+    } catch (e) {
+      debugPrint('SAVE ERROR: $e');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Save failed: $e'),
+            duration: const Duration(seconds: 10),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => saving = false);
+      }
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    readData();
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        title: const Text('Experiment 9 – Firebase'),
+        backgroundColor:
+            Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+      body: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'Enter Name',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.person),
+              ),
             ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+            const SizedBox(height: 12),
+            TextField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Enter Email',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.email),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: saving ? null : saveData,
+                child: Text(saving ? 'Saving…' : 'Submit'),
+              ),
+            ),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: loading ? null : readData,
+                child: const Text('Refresh Records'),
+              ),
+            ),
+            const Divider(height: 32),
+            const Text(
+              'Saved Student Records',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: loading
+                  ? const Center(
+                      child: CircularProgressIndicator(),
+                    )
+                  : records.isEmpty
+                      ? const Center(
+                          child: Text('No records found'),
+                        )
+                      : ListView(
+                          children: records.entries.map((entry) {
+                            final student =
+                                Map<String, dynamic>.from(
+                              entry.value as Map,
+                            );
+
+                            return Card(
+                              child: ListTile(
+                                leading: const Icon(Icons.person),
+                                title: Text(
+                                  '${student['name'] ?? 'No name'}',
+                                ),
+                                subtitle: Text(
+                                  '${student['email'] ?? 'No email'}',
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
